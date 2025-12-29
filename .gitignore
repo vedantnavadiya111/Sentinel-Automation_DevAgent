@@ -34,3 +34,6 @@ hf_cache/
 
 # Logs
 *.log
+
+# Local working area (mounted into containers)
+workspace/
