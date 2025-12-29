@@ -1,0 +1,626 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "sentinel/fix",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "06fa0280-7e04-41ce-8474-68debc55a7ad",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -448,
+        528
+      ],
+      "webhookId": "e65023e0-4cc4-4239-bfde-bb1dade48700"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = ($json && typeof $json === 'object' && $json.body && typeof $json.body === 'object') ? $json.body : $json;\n\nconst filePath = (body && typeof body.file_path === 'string' && body.file_path.trim()) ? body.file_path.trim() : 'buggy.py';\nconst commandRaw = (body && typeof body.command === 'string' && body.command.trim()) ? body.command.trim() : '';\n\nconst lower = filePath.toLowerCase();\nconst parts = lower.split('.');\nconst ext = (parts.length > 1) ? parts[parts.length - 1] : '';\n\nlet language = (body && typeof body.language === 'string' && body.language.trim()) ? body.language.trim().toLowerCase() : '';\nif (!language) {\n  if (ext === 'py') language = 'python';\n  else if (ext === 'js' || ext === 'mjs' || ext === 'cjs') language = 'javascript';\n  else if (ext === 'ts') language = 'typescript';\n  else if (ext === 'java') language = 'java';\n  else language = 'unknown';\n}\n\nfunction defaultCommandForFile() {\n  if (language === 'python') return `python ${filePath}`;\n  if (language === 'javascript') return `node ${filePath}`;\n  if (language === 'typescript') return `ts-node ${filePath}`;\n  if (language === 'java') return `dir=$(dirname \"${filePath}\"); base=$(basename \"${filePath}\" .java); javac \"${filePath}\" && java -cp \"$dir\" \"$base\"`;\n  return `python ${filePath}`;\n}\n\n// If user provided a command, only override when it clearly targets a DIFFERENT file than file_path.\n// (We must not override commands like mvn/gradle/npm test.)\nconst referencedFileMatch = commandRaw ? commandRaw.match(/([^\\s\"']+\\.(?:py|js|mjs|cjs|ts|java))\\b/i) : null;\nconst referencedFile = referencedFileMatch ? referencedFileMatch[1] : null;\n\nlet command;\nif (!commandRaw) {\n  command = defaultCommandForFile();\n} else if (referencedFile && referencedFile !== filePath) {\n  command = defaultCommandForFile();\n} else {\n  command = commandRaw;\n}\n\nconst userId = (body && typeof body.user_id === 'string' && body.user_id.trim()) ? body.user_id.trim() : 'default_user';\nconst limitRaw = body ? body.limit : undefined;\nconst limit = (typeof limitRaw === 'number' && Number.isFinite(limitRaw) && limitRaw > 0) ? Math.floor(limitRaw) : 5;\n\nreturn [{ json: { command, file_path: filePath, language, user_id: userId, limit } }];"
+      },
+      "id": "2a3d9e9a-6f0f-4da1-9ef5-6a2f6b8c7d11",
+      "name": "Inputs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -336,
+        528
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://sentinel_mcp:8001/run_command",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ command: $node['Inputs'].json.command }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "c088b3f2-6ee1-499f-9b22-273888229062",
+      "name": "Run buggy.py",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        -224,
+        528
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json.exit_code }}",
+              "operation": "notEqual",
+              "value2": 0
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "7d032b09-d4a3-4854-a81e-180528fb68f0",
+      "name": "Exit code != 0?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        16,
+        528
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'ok', exit_code: $node['Run buggy.py'].json['exit_code'], stdout: $node['Run buggy.py'].json['stdout'], stderr: $node['Run buggy.py'].json['stderr'] }) }}",
+        "options": {}
+      },
+      "id": "fc9dc738-c20b-4327-b0bd-3e56f4ce0253",
+      "name": "Respond (success)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        256,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "url": "http://sentinel_memory:8002/recall",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "user_id",
+              "value": "default_user"
+            },
+            {
+              "name": "query",
+              "value": "={{ $node[\"Run buggy.py\"].json[\"stderr\"] }}"
+            },
+            {
+              "name": "limit",
+              "value": "5"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "bf25fa9a-f81b-4640-ac51-9025f7e00333",
+      "name": "Recall memory",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        256,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://sentinel_mcp:8001/read_file",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ file_path: $node['Inputs'].json.file_path }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "5b2a1f66-6c43-4c9b-b9b0-8775b6c53b6b",
+      "name": "Read buggy.py",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        448,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://sentinel_mcp:8001/run_command",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ command: $node['Inputs'].json.command }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "dd3f45ca-611d-4cbc-9198-bda1b3eedd3a",
+      "name": "Re-run buggy.py",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1184,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json.exit_code }}",
+              "operation": "notEqual",
+              "value2": 0
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a8bd6f4f-9b86-4ed9-99e7-7c04b3cf6d10",
+      "name": "Exit code != 0? (after patch)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1392,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://sentinel_mcp:8001/read_file",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ file_path: $node['Inputs'].json.file_path }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "7b2c8c8d-1d61-4de0-8b8a-2f5b6e9f0a21",
+      "name": "Read target (retry)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1616,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "groqApi",
+        "sendHeaders": false,
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'llama-3.3-70b-versatile', temperature: 0.02, max_tokens: 2600, messages: [ { role: 'system', content: 'You fix a single source file. The language can be Python, JavaScript/TypeScript, or Java. Output ONLY valid JSON (no markdown). Your JSON must contain: file_path, replace_lines. replace_lines MUST be an array of strings, where each element is ONE line of the full corrected file (a complete rewrite). Do not include raw newlines inside an element. Fix all obvious issues (syntax, runtime, type/compile errors, logic bugs that prevent the command from succeeding). Do not modify any file other than the given file_path. Prefer minimal changes while making the command succeed.' }, { role: 'user', content: 'Second attempt. The file still fails after the first patch.\\n\\nLanguage: ' + $node[\"Inputs\"].json.language + '\\nCommand to run: ' + $node[\"Inputs\"].json.command + '\\nTarget file_path: ' + $node[\"Inputs\"].json.file_path + '\\n\\nSTDERR from run AFTER first patch:\\n' + (($node[\"Re-run buggy.py\"].json[\"stderr\"]) ? $node[\"Re-run buggy.py\"].json[\"stderr\"] : 'No Error Log') + '\\n\\nCurrent file contents (rewrite completely):\\n' + $node[\"Read target (retry)\"].json[\"content\"] + '\\n\\nReturn ONLY JSON with keys: file_path, replace_lines.' } ] }) }}",
+        "options": {}
+      },
+      "id": "f5f0b2cb-2ea2-42f3-87a0-1e5fa1c9b1f7",
+      "name": "Groq: propose patch (retry)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1616,
+        560
+      ],
+      "credentials": {
+        "groqApi": {
+          "id": "tTanSMRKZlQNs21n",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const content = $json?.choices?.[0]?.message?.content;\n\nif (!content) {\n  throw new Error('Groq response missing choices[0].message.content');\n}\n\nlet jsonString = content;\n\nif (jsonString.includes('```')) {\n  jsonString = jsonString.replace(/```json/gi, '').replace(/```/g, '');\n}\n\nconst firstOpen = jsonString.indexOf('{');\nconst lastClose = jsonString.lastIndexOf('}');\n\nif (firstOpen !== -1 && lastClose !== -1) {\n  jsonString = jsonString.substring(firstOpen, lastClose + 1);\n}\n\nlet patch;\ntry {\n  patch = JSON.parse(jsonString);\n} catch (e) {\n  throw new Error('Could not parse JSON. Cleaned string was: ' + jsonString);\n}\n\nif (!patch || typeof patch !== 'object') {\n  throw new Error('Patch JSON parsed but was not an object');\n}\n\nconst currentFileContent = $node['Read target (retry)']?.json?.content;\nif (!currentFileContent || typeof currentFileContent !== 'string') {\n  throw new Error('Missing current file contents from Read target (retry)');\n}\n\nconst defaultFilePath = $node['Inputs']?.json?.file_path;\npatch.file_path = (typeof patch.file_path === 'string' && patch.file_path.trim()) ? patch.file_path.trim() : defaultFilePath;\npatch.search_text = currentFileContent;\n\nif (!patch.file_path || typeof patch.file_path !== 'string') {\n  throw new Error('Invalid Patch: file_path missing');\n}\n\nlet replaceText = '';\n\n// Prefer JSON-safe line arrays to avoid truncation and escaping issues.\nif (Array.isArray(patch.replace_lines) && patch.replace_lines.length > 0 && patch.replace_lines.every((l) => typeof l === 'string')) {\n  replaceText = patch.replace_lines.join('\\n');\n} else if (typeof patch.replace_text_b64 === 'string' && patch.replace_text_b64.trim()) {\n  try {\n    replaceText = Buffer.from(patch.replace_text_b64, 'base64').toString('utf8');\n  } catch (e) {\n    throw new Error('Invalid Patch: replace_text_b64 could not be base64-decoded');\n  }\n} else if (typeof patch.replace_text === 'string' && patch.replace_text.trim()) {\n  replaceText = patch.replace_text;\n}\n\nif (!replaceText || typeof replaceText !== 'string' || !replaceText.trim()) {\n  throw new Error('Invalid Patch: replace_lines/replace_text_b64/replace_text missing or empty');\n}\n\nreturn [{ json: { file_path: patch.file_path, search_text: patch.search_text, replace_text: replaceText } }];"
+      },
+      "id": "6e83d3b1-b07a-4fb9-a7b3-9a8d7ee1d7d2",
+      "name": "Parse patch JSON (retry)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1856,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://sentinel_mcp:8001/apply_patch",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ file_path: ($json.file_path ? $json.file_path : $node['Inputs'].json.file_path), search_text: $json.search_text, replace_text: $json.replace_text }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "2c4a4d3d-1e06-4cb6-8dd7-4a1f7fbf3f4a",
+      "name": "Apply patch (retry)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        2112,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://sentinel_mcp:8001/run_command",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ command: $node['Inputs'].json.command }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "b5e2a9c0-5f8c-4f9f-9c8f-9f20a2d1a8b1",
+      "name": "Re-run (retry)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        2368,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json.exit_code }}",
+              "operation": "notEqual",
+              "value2": 0
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a9d4d5b7-3a67-4d5e-9b7b-5e4a4d0b7c32",
+      "name": "Exit code != 0? (after retry)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2608,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'patched', attempt: 2, patch: $node['Apply patch (retry)'].json, rerun: $node['Re-run (retry)'].json }) }}",
+        "options": {}
+      },
+      "id": "2b8f0f2d-0f07-4c7c-bd2f-4e54a3f9d6dd",
+      "name": "Respond (patched retry)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        2848,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'failed', message: 'Still failing after 2 patch attempts', attempt: 2, first_rerun: $node['Re-run buggy.py'].json, second_rerun: $node['Re-run (retry)'].json }) }}",
+        "options": {}
+      },
+      "id": "e1c5b8b0-2a9f-4d7e-9f76-2f5f4c0b9d0d",
+      "name": "Respond (failed after retry)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        2848,
+        720
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "groqApi",
+        "sendHeaders": false,
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'llama-3.3-70b-versatile', temperature: 0.05, max_tokens: 2200, messages: [ { role: 'system', content: 'You fix a single source file. The language can be Python, JavaScript/TypeScript, or Java. Output ONLY valid JSON (no markdown). Your JSON must contain: file_path, replace_lines. replace_lines MUST be an array of strings, where each element is ONE line of the full corrected file (a complete rewrite), not a fragment. Do not include raw newlines inside an element. The goal is to make the provided command succeed (exit_code 0) and to fix ALL obvious issues (syntax, runtime, type/compile errors) present in the file. Do not modify any file other than the given file_path.' }, { role: 'user', content: 'Language: ' + $node[\"Inputs\"].json.language + '\\nCommand to run: ' + $node[\"Inputs\"].json.command + '\\nTarget file_path: ' + $node[\"Inputs\"].json.file_path + '\\n\\nSTDOUT (from last run):\\n' + (($node[\"Run buggy.py\"].json[\"stdout\"]) ? $node[\"Run buggy.py\"].json[\"stdout\"] : '') + '\\n\\nSTDERR (from last run):\\n' + (($node[\"Run buggy.py\"].json[\"stderr\"]) ? $node[\"Run buggy.py\"].json[\"stderr\"] : 'No Error Log') + '\\n\\nCurrent file contents (rewrite this file completely):\\n' + $node[\"Read buggy.py\"].json[\"content\"] + '\\n\\nReturn ONLY JSON with keys: file_path, replace_lines.' } ] }) }}",
+        "options": {}
+      },
+      "id": "fe331e8a-3bf1-46b6-aaae-d39c58e31939",
+      "name": "Groq: propose patch (Safe Mode)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        448,
+        560
+      ],
+      "credentials": {
+        "groqApi": {
+          "id": "tTanSMRKZlQNs21n",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const content = $json?.choices?.[0]?.message?.content;\n\nif (!content) {\n  throw new Error('Groq response missing choices[0].message.content');\n}\n\nlet jsonString = content;\n\n// --- CLEANUP LOGIC ---\n\n// 1. Remove Markdown code blocks\nif (jsonString.includes('```')) {\n  jsonString = jsonString.replace(/```json/gi, '').replace(/```/g, '');\n}\n\n// 2. Extract only the JSON part\nconst firstOpen = jsonString.indexOf('{');\nconst lastClose = jsonString.lastIndexOf('}');\n\nif (firstOpen !== -1 && lastClose !== -1) {\n  jsonString = jsonString.substring(firstOpen, lastClose + 1);\n}\n\n// --- PARSING ---\n\nlet patch;\ntry {\n  patch = JSON.parse(jsonString);\n} catch (e) {\n  throw new Error('Could not parse JSON. Cleaned string was: ' + jsonString);\n}\n\nif (!patch || typeof patch !== 'object') {\n  throw new Error('Patch JSON parsed but was not an object');\n}\n\n// --- NORMALIZE ---\n// Deterministic apply_patch: always replace the entire CURRENT file content.\nconst currentFileContent = $node['Read buggy.py']?.json?.content;\nif (!currentFileContent || typeof currentFileContent !== 'string') {\n  throw new Error('Missing current file contents from Read buggy.py');\n}\n\nconst defaultFilePath = $node['Inputs']?.json?.file_path;\npatch.file_path = (typeof patch.file_path === 'string' && patch.file_path.trim()) ? patch.file_path.trim() : defaultFilePath;\n\n// Groq is asked to return only file_path + replace_lines, so we set search_text ourselves.\npatch.search_text = currentFileContent;\n\nif (!patch.file_path || typeof patch.file_path !== 'string') {\n  throw new Error('Invalid Patch: file_path missing');\n}\n\nlet replaceText = '';\n\n// Prefer JSON-safe line arrays to avoid truncation and escaping issues.\nif (Array.isArray(patch.replace_lines) && patch.replace_lines.length > 0 && patch.replace_lines.every((l) => typeof l === 'string')) {\n  replaceText = patch.replace_lines.join('\\n');\n} else if (typeof patch.replace_text_b64 === 'string' && patch.replace_text_b64.trim()) {\n  try {\n    replaceText = Buffer.from(patch.replace_text_b64, 'base64').toString('utf8');\n  } catch (e) {\n    throw new Error('Invalid Patch: replace_text_b64 could not be base64-decoded');\n  }\n} else if (typeof patch.replace_text === 'string' && patch.replace_text.trim()) {\n  replaceText = patch.replace_text;\n}\n\nif (!replaceText || typeof replaceText !== 'string' || !replaceText.trim()) {\n  throw new Error('Invalid Patch: replace_lines/replace_text_b64/replace_text missing or empty');\n}\n\nreturn [{ json: { file_path: patch.file_path, search_text: patch.search_text, replace_text: replaceText } }];"
+      },
+      "id": "c7f3ebfa-6ec6-47f4-ad45-e10e688beb88",
+      "name": "Parse patch JSON (Fixed)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        688,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://sentinel_mcp:8001/apply_patch",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ file_path: ($json.file_path ? $json.file_path : $node['Inputs'].json.file_path), search_text: $json.search_text, replace_text: $json.replace_text }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "dc74e749-4788-437a-9739-3340e4448834",
+      "name": "Apply patch (Fixed)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        944,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'patched', patch: $node['Apply patch (Fixed)'].json, rerun: $node['Re-run buggy.py'].json }) }}",
+        "options": {}
+      },
+      "id": "941ef070-0c85-4482-85e4-518cec62479d",
+      "name": "Respond (patched)1",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1392,
+        560
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Inputs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Inputs": {
+      "main": [
+        [
+          {
+            "node": "Run buggy.py",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run buggy.py": {
+      "main": [
+        [
+          {
+            "node": "Exit code != 0?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Exit code != 0?": {
+      "main": [
+        [
+          {
+            "node": "Recall memory",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond (success)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recall memory": {
+      "main": [
+        [
+          {
+            "node": "Read buggy.py",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read buggy.py": {
+      "main": [
+        [
+          {
+            "node": "Groq: propose patch (Safe Mode)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Re-run buggy.py": {
+      "main": [
+        [
+          {
+            "node": "Exit code != 0? (after patch)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Exit code != 0? (after patch)": {
+      "main": [
+        [
+          {
+            "node": "Read target (retry)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond (patched)1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read target (retry)": {
+      "main": [
+        [
+          {
+            "node": "Groq: propose patch (retry)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq: propose patch (retry)": {
+      "main": [
+        [
+          {
+            "node": "Parse patch JSON (retry)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse patch JSON (retry)": {
+      "main": [
+        [
+          {
+            "node": "Apply patch (retry)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply patch (retry)": {
+      "main": [
+        [
+          {
+            "node": "Re-run (retry)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Re-run (retry)": {
+      "main": [
+        [
+          {
+            "node": "Exit code != 0? (after retry)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Exit code != 0? (after retry)": {
+      "main": [
+        [
+          {
+            "node": "Respond (failed after retry)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond (patched retry)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq: propose patch (Safe Mode)": {
+      "main": [
+        [
+          {
+            "node": "Parse patch JSON (Fixed)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse patch JSON (Fixed)": {
+      "main": [
+        [
+          {
+            "node": "Apply patch (Fixed)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply patch (Fixed)": {
+      "main": [
+        [
+          {
+            "node": "Re-run buggy.py",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "meta": {
+    "instanceId": "3b003d32ee5fae0978367f14ca6e9bfb16d57a658e95c6c6f2d486dcb37bb5b6"
+  }
+}

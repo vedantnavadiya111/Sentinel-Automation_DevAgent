@@ -1,0 +1,36 @@
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+
+# Node
+node_modules/
+
+# Java
+*.class
+*.jar
+*.war
+*.ear
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+
+# n8n local data (if ever created as folders)
+n8n_data/
+
+# Qdrant local data (if ever created as folders)
+qdrant_data/
+
+# HF cache (if ever created as folders)
+hf_cache/
+
+# Logs
+*.log
