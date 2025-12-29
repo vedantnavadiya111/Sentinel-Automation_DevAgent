@@ -1,5 +1,10 @@
 # Sentinel (Local-First Self-Healing DevOps Agent)
 
+## License / Usage
+This repository is **source-available** for viewing, learning, and inspiration.
+Redistribution, rehosting, and derivative works are **not permitted** without explicit permission.
+See [LICENSE](LICENSE).
+
 This repo scaffolds **Sentinel**, a Docker Compose stack that:
 - Runs **n8n** as the orchestration layer
 - Exposes a custom **MCP server** (file read/write + command execution) for n8n to call
