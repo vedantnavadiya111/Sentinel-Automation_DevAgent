@@ -1,7 +1,8 @@
 # Sentinel (Local-First Self-Healing DevOps Agent)
 Sentinel is a Docker Compose-based automation project that turns “run this failing command” into an iterative repair loop. It ships an importable n8n workflow that triggers via webhook, executes your command inside an isolated MCP runner, captures errors + file context, requests a full-file rewrite from an LLM, applies the patch deterministically, and re-runs with retries. The stack includes n8n for orchestration, a lightweight “memory” service for recalling prior failures, and Qdrant for vector storage. Language support is designed to cover Python, JavaScript/TypeScript, and Java out of the box via tooling inside the MCP container.
 
-
+## Video Demo
+https://github.com/user-attachments/assets/d0e211d3-0812-4405-a97b-934bb4c6cc75
 
 
 
